@@ -173,9 +173,11 @@ class FitResult:
     mask_obs: np.ndarray
     X: np.ndarray
     _score_fn: Callable[..., ScoreResult] | None = field(default=None, repr=False)
+    n_categories: np.ndarray | None = field(default=None, repr=False)
 
     def __repr__(self) -> str:
-        n_items = len(self.params["b"])
+        b_or_a = self.params.get("b", self.params.get("a", np.array([])))
+        n_items = b_or_a.shape[0] if hasattr(b_or_a, "shape") else len(b_or_a)
         n_persons = self.X.shape[0]
         conv_str = "converged" if self.converged else "not converged"
         loglik_str = f"{self.loglik:.2f}" if self.loglik is not None else "N/A"
@@ -269,6 +271,20 @@ class FitResult:
             ) from e
 
         n_obs = self.mask_obs.sum(axis=0)
+        POLYTOMOUS = ("pcm", "rsm", "grm", "gpcm", "nrm")
+        if self.model in POLYTOMOUS:
+            data = {"item": self.item_names, "n_obs": n_obs}
+            if "a" in self.params:
+                data["a"] = self.params["a"]
+            if "b" in self.params:
+                b = self.params["b"]
+                if b.ndim == 1:
+                    data["b"] = b
+                else:
+                    data["b_mean"] = np.nanmean(np.where(np.isfinite(b), b, np.nan), axis=1)
+            if "tau" in self.params:
+                data["tau"] = [str(self.params["tau"])] * len(self.item_names)  # type: ignore
+            return pd.DataFrame(data)
         data = {
             "item": self.item_names,
             "a": self.params["a"],
@@ -362,17 +378,30 @@ class FitResult:
         >>> item_fit = result.item_fit()
         >>> misfitting = item_fit[item_fit['infit_ms'] > 1.5]
         """
-        from .diagnostics import item_fit_table
+        from .diagnostics import item_fit_table, item_fit_table_poly
 
-        # Get theta estimates
         try:
             scores = self.score(method=method)
             theta = scores.theta
         except (ValueError, RuntimeError):
-            # Fallback to MAP
             scores = self.score(method="map")
             theta = scores.theta
 
+        POLYTOMOUS = ("pcm", "rsm", "grm", "gpcm", "nrm")
+        if self.model in POLYTOMOUS:
+            n_cat = getattr(self, "n_categories", None)
+            if n_cat is None:
+                n_cat = np.max(self.X[self.mask_obs].astype(int)) + 1
+                n_cat = np.full(self.X.shape[1], int(n_cat))
+            return item_fit_table_poly(
+                X=self.X,
+                mask_obs=self.mask_obs,
+                theta=theta,
+                params=self.params,
+                model=self.model,
+                n_categories=n_cat,
+                item_names=self.item_names,
+            )
         return item_fit_table(
             X=self.X,
             mask_obs=self.mask_obs,
@@ -398,7 +427,7 @@ class FitResult:
             Person fit table with columns: person, theta, se,
             infit_ms, infit_z, outfit_ms, outfit_z.
         """
-        from .diagnostics import infit_outfit_persons
+        from .diagnostics import infit_outfit_persons, infit_outfit_persons_poly
 
         try:
             import pandas as pd
@@ -408,7 +437,6 @@ class FitResult:
                 "Install it with: pip install pandas"
             ) from e
 
-        # Get theta estimates
         try:
             scores = self.score(method=method)
         except (ValueError, RuntimeError):
@@ -423,10 +451,19 @@ class FitResult:
         theta = scores.theta
         se = scores.se if scores.se is not None else np.full_like(theta, np.nan)
 
-        infit_ms, infit_z, outfit_ms, outfit_z = infit_outfit_persons(
-            self.X, self.mask_obs, theta,
-            self.params["a"], self.params["b"], self.params.get("c")
-        )
+        POLYTOMOUS = ("pcm", "rsm", "grm", "gpcm", "nrm")
+        if self.model in POLYTOMOUS:
+            n_cat = getattr(self, "n_categories", None)
+            if n_cat is None:
+                n_cat = np.full(self.X.shape[1], int(np.nanmax(self.X[self.mask_obs]) + 1))
+            infit_ms, infit_z, outfit_ms, outfit_z = infit_outfit_persons_poly(
+                self.X, self.mask_obs, theta, self.params, self.model, n_cat
+            )
+        else:
+            infit_ms, infit_z, outfit_ms, outfit_z = infit_outfit_persons(
+                self.X, self.mask_obs, theta,
+                self.params["a"], self.params["b"], self.params.get("c")
+            )
 
         return pd.DataFrame({
             "person": self.person_names,
@@ -466,7 +503,7 @@ class FitResult:
         >>> print(f"Reliability: {fit_stats['reliability']:.3f}")
         >>> print(f"RMSEA: {fit_stats.get('rmsea', 'N/A')}")
         """
-        from .diagnostics import model_fit_summary
+        from .diagnostics import model_fit_summary, model_fit_summary_poly
 
         try:
             scores = self.score(method=method)
@@ -475,6 +512,16 @@ class FitResult:
 
         theta = scores.theta
         se = scores.se if scores.se is not None else np.full_like(theta, np.nan)
+
+        POLYTOMOUS = ("pcm", "rsm", "grm", "gpcm", "nrm")
+        if self.model in POLYTOMOUS:
+            n_cat = getattr(self, "n_categories", None)
+            if n_cat is None:
+                n_cat = np.full(self.X.shape[1], int(np.nanmax(self.X[self.mask_obs]) + 1))
+            return model_fit_summary_poly(
+                self.X, self.mask_obs, theta, se,
+                self.params, self.model, n_cat, self.loglik
+            )
 
         return model_fit_summary(
             X=self.X,
@@ -596,7 +643,16 @@ class FitResult:
         >>> result = fit(X)
         >>> fig, ax = result.plot_icc(items=[0, 1, 2])
         """
-        from .plotting import plot_icc
+        from .plotting import plot_icc, plot_ccc
+
+        POLYTOMOUS = ("pcm", "rsm", "grm", "gpcm", "nrm")
+        if self.model in POLYTOMOUS:
+            item_idx = items[0] if items is not None else 0
+            n_cat = int(self.n_categories[item_idx]) if self.n_categories is not None else 4
+            return plot_ccc(
+                self.params, self.model, item_idx, n_cat,
+                theta_range=theta_range, **kwargs
+            )
 
         a = self.params["a"]
         b = self.params["b"]

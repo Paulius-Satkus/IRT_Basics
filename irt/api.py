@@ -2,23 +2,21 @@
 Public API for the IRT library.
 
 This module provides the main entry point for fitting IRT models:
-- fit(): Fits Rasch or 2PL models using MML-EM or JMLE estimation
+- fit(): Fits binary (Rasch, 2PL, 3PL) or polytomous (PCM, RSM, GRM, GPCM, NRM)
+  IRT models using MML-EM or JMLE estimation.
 
 Example
 -------
 >>> import numpy as np
 >>> from irt import fit
 >>>
->>> # Generate some response data
+>>> # Binary: Rasch model
 >>> X = np.random.binomial(1, 0.7, size=(100, 20)).astype(float)
->>>
->>> # Fit a Rasch model using MML-EM
 >>> result = fit(X, model="rasch", estimator="mml_em")
->>> print(result)
 >>>
->>> # Get person ability estimates
->>> scores = result.score(method="eap")
->>> print(scores.theta[:5])
+>>> # Polytomous: Partial Credit Model
+>>> X_poly = np.random.randint(0, 5, size=(100, 10)).astype(float)
+>>> result_poly = fit(X_poly, model="pcm")
 """
 
 from __future__ import annotations
@@ -43,22 +41,23 @@ def fit(
     fixed: dict[str, np.ndarray] | None = None,
     priors: dict[str, Any] | "pd.DataFrame" | None = None,
     constraints: dict[str, Any] | None = None,
+    n_categories: int | list[int] | np.ndarray | None = None,
 ) -> FitResult:
     """
-    Fit an IRT model to binary response data.
+    Fit an IRT model to response data.
 
     Parameters
     ----------
     X : array-like or DataFrame
         Response matrix of shape (N, J) where N is the number of persons
-        and J is the number of items. Values must be in {0, 1, NaN}.
-        NaN indicates missing responses.
+        and J is the number of items. For binary models values must be
+        in {0, 1, NaN}; for polytomous models values must be integers
+        in {0, 1, ..., m_j-1, NaN}. NaN indicates missing responses.
 
-    model : {"rasch", "2pl", "3pl"}, default="rasch"
+    model : {"rasch", "2pl", "3pl", "pcm", "rsm", "grm", "gpcm", "nrm"}, default="rasch"
         IRT model to fit:
-        - "rasch": One-parameter logistic model (discrimination fixed at 1)
-        - "2pl": Two-parameter logistic model (discrimination estimated)
-        - "3pl": Three-parameter logistic model (discrimination + guessing)
+        Binary: rasch, 2pl, 3pl
+        Polytomous: pcm, rsm, grm, gpcm, nrm
 
     estimator : {"mml_em", "jmle"}, default="mml_em"
         Estimation method:
@@ -117,6 +116,9 @@ def fit(
         - "center_b" (bool): Center difficulties to have mean 0 (default: True
           for JMLE, False for MML-EM which uses prior for identification)
 
+    n_categories : int, list[int], or None, optional
+        For polytomous models: number of categories per item. None = infer from data.
+
     Returns
     -------
     FitResult
@@ -160,15 +162,24 @@ def fit(
     >>> print(f"Discriminations: {result_2pl.params['a'][:5]}")
     """
     # Import here to avoid circular imports
-    from .data import as_binary_matrix, filter_people_min_items
+    from .data import (
+        as_binary_matrix,
+        as_polytomous_matrix,
+        filter_people_min_items,
+    )
     from .estimators.mml_em import fit_mml_em
+    from .estimators.mml_em_poly import fit_mml_em_poly
     from .estimators.jmle import fit_jmle
+
+    POLYTOMOUS_MODELS = ("pcm", "rsm", "grm", "gpcm", "nrm")
+    BINARY_MODELS = ("rasch", "2pl", "3pl")
 
     # Validate model parameter
     model = model.lower()
-    if model not in ("rasch", "2pl", "3pl"):
+    if model not in BINARY_MODELS + POLYTOMOUS_MODELS:
         raise ValueError(
-            f"Invalid model '{model}'. Must be 'rasch', '2pl', or '3pl'."
+            f"Invalid model '{model}'. Must be one of "
+            f"{BINARY_MODELS + POLYTOMOUS_MODELS}."
         )
 
     # Validate estimator parameter
@@ -185,8 +196,20 @@ def fit(
             "Use estimator='mml_em' for 2PL/3PL models."
         )
 
-    # Convert and validate data
-    X_np, mask_obs, item_names, person_names = as_binary_matrix(X)
+    # Polytomous models only support MML-EM
+    if model in POLYTOMOUS_MODELS and estimator == "jmle":
+        raise ValueError(
+            f"Polytomous model '{model}' only supports estimator='mml_em'."
+        )
+
+    is_polytomous = model in POLYTOMOUS_MODELS
+
+    if is_polytomous:
+        X_np, mask_obs, item_names, person_names, n_cat = as_polytomous_matrix(
+            X, n_categories=n_categories
+        )
+    else:
+        X_np, mask_obs, item_names, person_names = as_binary_matrix(X)
 
     # Filter persons with too few responses
     min_items = 2
@@ -235,7 +258,18 @@ def fit(
         constraints = {}
 
     # Dispatch to appropriate estimator
-    if estimator == "mml_em":
+    if is_polytomous:
+        result = fit_mml_em_poly(
+            X=X_np,
+            mask_obs=mask_obs,
+            n_categories=n_cat,
+            model=model,
+            technical=tech,
+            start=start,
+            item_names=item_names,
+            person_names=person_names,
+        )
+    elif estimator == "mml_em":
         result = fit_mml_em(
             X=X_np,
             mask_obs=mask_obs,

@@ -582,6 +582,65 @@ def infit_outfit_persons(
     return infit_ms, infit_z, outfit_ms, outfit_z
 
 
+def infit_outfit_persons_poly(
+    X: np.ndarray,
+    mask_obs: np.ndarray,
+    theta: np.ndarray,
+    params: dict,
+    model: str,
+    n_categories: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Infit and outfit for polytomous persons."""
+    from .core_poly import prob_pcm, prob_rsm, prob_grm, prob_gpcm, prob_nrm
+
+    E, _, std_residual = compute_residuals_poly(
+        X, mask_obs, theta, params, model, n_categories
+    )
+    N = X.shape[0]
+    z_sq = std_residual**2
+    V = np.zeros_like(E)
+    J = X.shape[1]
+    for j in range(J):
+        n_cat = int(n_categories[j])
+        for i in range(N):
+            if not mask_obs[i, j]:
+                continue
+            th_arr = np.array([theta[i]])
+            if model == "pcm":
+                p = prob_pcm(th_arr, params["b"][j], n_cat)[0]
+            elif model == "rsm":
+                p = prob_rsm(th_arr, params["b"][j], params["tau"], n_cat)[0]
+            elif model == "grm":
+                p = prob_grm(th_arr, params["a"][j], params["b"][j], n_cat)[0]
+            elif model == "gpcm":
+                p = prob_gpcm(th_arr, params["a"][j], params["b"][j], n_cat)[0]
+            elif model == "nrm":
+                p = prob_nrm(th_arr, params["a"][j], params["c"][j], n_cat)[0]
+            else:
+                raise ValueError(f"Unknown model '{model}'")
+            p = np.clip(p, 1e-12, 1.0 - 1e-12)
+            cats = np.arange(n_cat, dtype=np.float64)
+            ex = np.sum(cats * p)
+            V[i, j] = max(np.sum(cats**2 * p) - ex**2, 1e-12)
+
+    infit_ms = np.zeros(N)
+    outfit_ms = np.zeros(N)
+    infit_z = np.zeros(N)
+    outfit_z = np.zeros(N)
+    for i in range(N):
+        obs_i = mask_obs[i]
+        if obs_i.sum() < 2:
+            infit_ms[i] = outfit_ms[i] = infit_z[i] = outfit_z[i] = np.nan
+            continue
+        z_sq_i = z_sq[i, obs_i]
+        V_i = V[i, obs_i]
+        outfit_ms[i] = z_sq_i.mean()
+        infit_ms[i] = np.sum(V_i * z_sq_i) / np.sum(V_i)
+        infit_z[i] = (infit_ms[i] - 1) * 2 if infit_ms[i] > 0 else 0
+        outfit_z[i] = (outfit_ms[i] - 1) * 2 if outfit_ms[i] > 0 else 0
+    return infit_ms, infit_z, outfit_ms, outfit_z
+
+
 def infit_outfit(
     X: np.ndarray,
     mask_obs: np.ndarray,
@@ -1063,6 +1122,7 @@ def compute_aic_bic(
     n_persons: int,
     n_items: int,
     model: str,
+    n_params: int | None = None,
 ) -> tuple[float, float]:
     """
     Compute AIC and BIC for model comparison.
@@ -1095,15 +1155,22 @@ def compute_aic_bic(
     AIC = -2 * loglik + 2 * k
     BIC = -2 * loglik + k * log(n)
     """
-    model = model.lower()
-    if model == "rasch":
-        n_params = n_items  # Only b parameters
-    elif model == "2pl":
-        n_params = 2 * n_items  # a and b parameters
-    elif model == "3pl":
-        n_params = 3 * n_items
+    if n_params is not None:
+        pass  # Use provided n_params
     else:
-        raise ValueError(f"Unknown model '{model}'.")
+        model = model.lower()
+        if model == "rasch":
+            n_params = n_items
+        elif model == "2pl":
+            n_params = 2 * n_items
+        elif model == "3pl":
+            n_params = 3 * n_items
+        elif model in ("pcm", "rsm", "grm", "gpcm", "nrm"):
+            raise ValueError(
+                f"For polytomous model '{model}', provide n_params explicitly."
+            )
+        else:
+            raise ValueError(f"Unknown model '{model}'.")
 
     n_obs = n_persons  # Could also use total observations
 
@@ -1410,6 +1477,52 @@ def model_fit_summary(
     return summary
 
 
+def model_fit_summary_poly(
+    X: np.ndarray,
+    mask_obs: np.ndarray,
+    theta: np.ndarray,
+    se: np.ndarray,
+    params: dict,
+    model: str,
+    n_categories: np.ndarray,
+    loglik: float | None,
+) -> dict:
+    """Basic model fit summary for polytomous models."""
+
+    N, J = X.shape
+    n_obs = int(mask_obs.sum())
+    n_param = 0
+    if "b" in params:
+        b = params["b"]
+        n_param += b.size if np.isscalar(b) else np.sum(np.isfinite(b))
+    if "a" in params:
+        a = params["a"]
+        n_param += a.size if np.isscalar(a) else np.sum(np.isfinite(a))
+    if "tau" in params:
+        n_param += len(params["tau"])
+    if "c" in params:
+        n_param += params["c"].size
+
+    aic = bic = np.nan
+    if loglik is not None:
+        aic, bic = compute_aic_bic(loglik, N, J, model, n_params=n_param)
+
+    se_valid = se[np.isfinite(se)]
+    reliability = float(1 - np.mean(se_valid**2)) if len(se_valid) > 0 else np.nan
+
+    return {
+        "n_persons": N,
+        "n_items": J,
+        "n_observations": n_obs,
+        "n_parameters": n_param,
+        "loglik": loglik,
+        "aic": aic,
+        "bic": bic,
+        "reliability": reliability,
+        "model": model,
+    }
+
+
 def item_fit_table(
     X: np.ndarray,
     mask_obs: np.ndarray,
@@ -1502,3 +1615,143 @@ def item_fit_table(
     if c is not None:
         data["c"] = c
     return pd.DataFrame(data)
+
+
+def compute_residuals_poly(
+    X: np.ndarray,
+    mask_obs: np.ndarray,
+    theta: np.ndarray,
+    params: dict,
+    model: str,
+    n_categories: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute expected score, residual, and standardized residual for polytomous.
+
+    E[X_j] = Σ_c c · P(X_j=c|θ),  Var = Σ_c c² · P(c) − E²
+
+    Vectorized over persons for each item -- probabilities for all
+    observed theta values are computed in one call per item.
+    """
+    from .estimators.mml_em_poly import _prob_item_all_theta
+
+    N, J = X.shape
+    E = np.zeros((N, J), dtype=np.float64)
+    V = np.zeros((N, J), dtype=np.float64)
+
+    for j in range(J):
+        obs_j = mask_obs[:, j]
+        if not np.any(obs_j):
+            continue
+        n_cat = int(n_categories[j])
+        theta_obs = theta[obs_j]
+        # Compute P(X=c|theta) for all observed persons at once: (N_obs, n_cat)
+        p = np.clip(
+            _prob_item_all_theta(theta_obs, params, model, j, n_cat),
+            1e-12, 1.0 - 1e-12,
+        )
+        cats = np.arange(n_cat, dtype=np.float64)
+        E[obs_j, j] = p @ cats                             # E[X]
+        V[obs_j, j] = np.maximum(p @ (cats**2) - E[obs_j, j] ** 2, 1e-12)
+
+    residual = np.where(mask_obs, X - E, 0.0)
+    std_residual = np.where(mask_obs, residual / np.sqrt(np.maximum(V, 1e-12)), 0.0)
+    return E, residual, std_residual
+
+
+def infit_outfit_items_poly(
+    X: np.ndarray,
+    mask_obs: np.ndarray,
+    theta: np.ndarray,
+    params: dict,
+    model: str,
+    n_categories: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Infit and outfit mean-square statistics for polytomous items."""
+    E, _, std_residual = compute_residuals_poly(
+        X, mask_obs, theta, params, model, n_categories
+    )
+    # V was already computed inside compute_residuals_poly; recompute here
+    # to stay cheap (vectorized) rather than returning extra values.
+    from .estimators.mml_em_poly import _prob_item_all_theta
+
+    N, J = X.shape
+    z_sq = std_residual**2
+    V = np.zeros_like(E)
+    for j in range(J):
+        obs_j = mask_obs[:, j]
+        if not np.any(obs_j):
+            continue
+        n_cat = int(n_categories[j])
+        theta_obs = theta[obs_j]
+        p = np.clip(
+            _prob_item_all_theta(theta_obs, params, model, j, n_cat),
+            1e-12, 1.0 - 1e-12,
+        )
+        cats = np.arange(n_cat, dtype=np.float64)
+        ex = p @ cats
+        V[obs_j, j] = np.maximum(p @ (cats**2) - ex**2, 1e-12)
+
+    infit_ms = np.zeros(J)
+    outfit_ms = np.zeros(J)
+    infit_z = np.zeros(J)
+    outfit_z = np.zeros(J)
+    for j in range(J):
+        obs_j = mask_obs[:, j]
+        if obs_j.sum() < 2:
+            infit_ms[j] = outfit_ms[j] = infit_z[j] = outfit_z[j] = np.nan
+            continue
+        z_sq_j = z_sq[obs_j, j]
+        V_j = V[obs_j, j]
+        outfit_ms[j] = z_sq_j.mean()
+        infit_ms[j] = np.sum(V_j * z_sq_j) / np.sum(V_j)
+        infit_z[j] = (infit_ms[j] - 1) * 2 if infit_ms[j] > 0 else 0
+        outfit_z[j] = (outfit_ms[j] - 1) * 2 if outfit_ms[j] > 0 else 0
+    return infit_ms, infit_z, outfit_ms, outfit_z
+
+
+def item_fit_table_poly(
+    X: np.ndarray,
+    mask_obs: np.ndarray,
+    theta: np.ndarray,
+    params: dict,
+    model: str,
+    n_categories: np.ndarray,
+    item_names: list[str] | None = None,
+) -> "pd.DataFrame":
+    """Item fit table for polytomous models."""
+    try:
+        import pandas as pd
+    except ImportError as e:
+        raise ImportError("pandas required for item_fit_table_poly") from e
+
+    J = X.shape[1]
+    if item_names is None:
+        item_names = [f"item_{j}" for j in range(J)]
+
+    n_obs = mask_obs.sum(axis=0)
+    X_masked = np.where(mask_obs, X, np.nan)
+    p_value = np.nanmean(X_masked, axis=0)
+
+    infit_ms, infit_z, outfit_ms, outfit_z = infit_outfit_items_poly(
+        X, mask_obs, theta, params, model, n_categories
+    )
+
+    b_col = params.get("b")
+    if b_col is not None and b_col.ndim == 2:
+        b_mean = np.nanmean(np.where(np.isfinite(b_col), b_col, np.nan), axis=1)
+    elif b_col is not None:
+        b_mean = b_col
+    else:
+        b_mean = np.zeros(J)
+
+    return pd.DataFrame({
+        "item": item_names,
+        "b_mean": b_mean,
+        "n_obs": n_obs,
+        "p_value": p_value,
+        "infit_ms": infit_ms,
+        "infit_z": infit_z,
+        "outfit_ms": outfit_ms,
+        "outfit_z": outfit_z,
+    })
