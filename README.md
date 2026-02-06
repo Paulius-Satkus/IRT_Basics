@@ -4,7 +4,8 @@ A production-quality Python library for fitting Item Response Theory (IRT) model
 
 ## Features
 
-- **Models**: Rasch (1PL), Two-Parameter Logistic (2PL), and Three-Parameter Logistic (3PL)
+- **Binary models**: Rasch (1PL), Two-Parameter Logistic (2PL), Three-Parameter Logistic (3PL)
+- **Polytomous models**: PCM, RSM, GRM, GPCM, NRM (MML-EM only)
 - **Estimators**: MML-EM and JMLE (Rasch only)
 - **Scoring**: EAP, MAP, and MLE ability estimation
 - **Diagnostics**: Infit/outfit statistics, point-biserial correlations
@@ -66,11 +67,11 @@ P(X=1|θ) = c + (1 - c) / (1 + exp(-a(θ - b)))
 
 ### `fit(X, model="rasch", estimator="mml_em", ...)`
 
-Fit an IRT model to binary response data.
+Fit an IRT model to response data.
 
 **Parameters:**
-- `X`: Response matrix (N × J) with values in {0, 1, NaN}
-- `model`: `"rasch"`, `"2pl"`, or `"3pl"`
+- `X`: Response matrix (N × J). Binary: {0, 1, NaN}. Polytomous: {0, 1, …, m-1, NaN}
+- `model`: Binary: `"rasch"`, `"2pl"`, `"3pl"`. Polytomous: `"pcm"`, `"rsm"`, `"grm"`, `"gpcm"`, `"nrm"`
 - `estimator`: `"mml_em"` or `"jmle"` (JMLE only supports Rasch)
 - `technical`: Dict of technical parameters (see below)
 - `start`: Starting values `{"a": array, "b": array}`
@@ -111,7 +112,7 @@ Fit an IRT model to binary response data.
 ### `FitResult` Object
 
 **Attributes:**
-- `model`: Model type (`"rasch"` or `"2pl"`)
+- `model`: Model type (`"rasch"`, `"2pl"`, `"3pl"`, or polytomous)
 - `estimator`: Estimation method
 - `params`: Dict with `"a"` and `"b"` arrays
 - `converged`: Boolean convergence indicator
@@ -167,6 +168,21 @@ print(f"Guessing: {result.params['c']}")
 ```
 
 By default, 3PL uses a weak gamma prior on `c` unless you supply a custom prior.
+
+### Fit Polytomous Model (PCM, GPCM, GRM, etc.)
+
+```python
+# Likert-scale data: 5 categories (0–4) per item
+X = np.random.randint(0, 5, size=(200, 10)).astype(float)
+X[np.random.random(X.shape) < 0.05] = np.nan  # Add missing
+
+result = fit(X, model="pcm")   # Partial Credit Model
+# Or: model="gpcm", "grm", "rsm", "nrm"
+print(result.item_report())
+result.plot_icc(items=[0])     # Category Characteristic Curves
+```
+
+See `notebooks/07_polytomous_models.ipynb` for a full demo.
 
 ### Custom Technical Parameters
 
