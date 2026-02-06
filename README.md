@@ -299,6 +299,8 @@ make test
 python scripts/run_tests_with_qa_report.py
 ```
 
+**R validation**: Binary models are validated against R `ltm` and `mirt`; polytomous (PCM, GPCM, GRM, RSM) against R `mirt`. Reference files are pre-committed; tests run without R. To regenerate polytomous refs: `make refs`. See `CONTRIBUTING.md`.
+
 ## References
 
 - Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item parameters: Application of an EM algorithm. *Psychometrika*, 46(4), 443-459.

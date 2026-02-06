@@ -93,8 +93,8 @@ python -m pytest -vv --tb=short
 
 ## Notes
 
-- `mirt` reference data generated via `tests/generate_mirt_reference.R`
-- `ltm` reference data generated via `tests/generate_ltm_reference.R`
+- Binary: `mirt` refs via `tests/generate_mirt_reference.R`, `ltm` refs via `tests/generate_ltm_reference.R`
+- Polytomous: `make refs` or `Rscript tests/generate_polytomous_reference.R` (requires R + mirt)
 - Run `python scripts/run_tests_with_qa_report.py` or `make test` for full suite + QA report
 """
 

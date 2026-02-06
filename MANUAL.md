@@ -638,28 +638,38 @@ ValueError: Polytomous model 'pcm' only supports estimator='mml_em'.
 
 **Solution**: Polytomous models (PCM, RSM, GRM, GPCM, NRM) require MML-EM. Omit `estimator` or use `estimator="mml_em"`.
 
-### Validation Against R mirt
+### Validation Against R mirt and ltm
 
-To verify your results, compare with R's mirt package:
+The test suite validates estimates against R packages:
+
+- **Binary** (Rasch, 2PL): `ltm` and `mirt` on LSAT/LSAT7
+- **Polytomous** (PCM, GPCM, GRM, RSM): `mirt` on Science dataset (4 items, 4 categories)
+
+Reference files are pre-committed in `tests/ltm_reference/` and `tests/mirt_reference/`. Tests run without R. To regenerate polytomous refs: `make refs` (requires R with `mirt`).
+
+Manual comparison with R:
 
 ```r
-# R code
+# Binary
 library(mirt)
 mod <- mirt(data, 1, itemtype='Rasch')
 coef(mod, simplify=TRUE, IRTpars=TRUE)
 fscores(mod, method='EAP')
+
+# Polytomous (Science data)
+Science <- read.csv("tests/science_data.csv")  # 1-based categories
+mod <- mirt(Science, 1, itemtype='graded')     # GRM
+coef(mod, simplify=TRUE, IRTpars=TRUE)
 ```
 
-Expected agreement:
-- Item parameters: within ±0.05 logits
-- EAP scores: correlation > 0.99
+Expected agreement: parameters within ±0.15, loglik within 2.0, EAP correlation > 0.98.
 
 ---
 
 ## Version History
 
 - **0.1.0**: Initial release with Rasch and 2PL MML-EM, JMLE for Rasch
-- **0.2.0** (planned): Polytomous models (PCM, RSM, GRM, GPCM, NRM) with MML-EM
+- **0.2.0**: Polytomous models (PCM, RSM, GRM, GPCM, NRM) with MML-EM; validation against R mirt
 
 ---
 

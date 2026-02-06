@@ -27,6 +27,17 @@ python scripts/run_tests_with_qa_report.py
 python -m pytest -vv
 ```
 
+### R validation (polytomous)
+
+Polytomous validation compares PCM, GPCM, GRM, RSM to R `mirt`. Reference files are pre-committed; tests run without R. To regenerate:
+
+```bash
+make refs
+# or: Rscript tests/generate_polytomous_reference.R
+```
+
+Requires: R with `mirt` installed. The Science data is in `tests/science_data.csv` (exported from ltm package).
+
 ### Style
 
 - Prefer small, focused changes.
