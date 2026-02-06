@@ -177,6 +177,48 @@ def plot_icc(
     return fig, ax
 
 
+def plot_ccc(
+    params: dict,
+    model: str,
+    item_idx: int,
+    n_categories: int,
+    theta_range: tuple[float, float] = (-4, 4),
+    n_points: int = 100,
+    ax: "Axes | None" = None,
+    title: str | None = None,
+    figsize: tuple[float, float] = (8, 6),
+) -> tuple["Figure", "Axes"]:
+    """
+    Plot Category Characteristic Curves (CCCs) for a polytomous item.
+
+    P(X=c|theta) vs theta for each category c.
+    """
+    from .estimators.mml_em_poly import _prob_item_all_theta
+
+    plt = _check_matplotlib()
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    theta_plot = np.linspace(theta_range[0], theta_range[1], n_points)
+    p = _prob_item_all_theta(theta_plot, params, model, item_idx, n_categories)
+
+    colors = plt.cm.viridis(np.linspace(0, 1, n_categories))
+    for c in range(n_categories):
+        ax.plot(theta_plot, p[:, c], label=f"P(X={c})", color=colors[c])
+
+    ax.set_xlabel(r"$\theta$ (Ability)", fontsize=12)
+    ax.set_ylabel("P(X = c | θ)", fontsize=12)
+    ax.set_ylim(-0.05, 1.05)
+    ax.legend(loc="best")
+    if title is None:
+        title = f"Item {item_idx}: Category Characteristic Curves"
+    ax.set_title(title, fontsize=14)
+    fig.tight_layout()
+    return fig, ax
+
+
 def plot_icc_with_empirical(
     X: np.ndarray,
     mask_obs: np.ndarray,

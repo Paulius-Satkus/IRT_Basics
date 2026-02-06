@@ -121,6 +121,151 @@ def as_binary_matrix(
     return X_np, mask_obs, item_names, person_names
 
 
+def as_polytomous_matrix(
+    X: np.ndarray | "pd.DataFrame",
+    n_categories: int | list[int] | np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, list[str], list[str], np.ndarray]:
+    """
+    Convert input data to a standardized polytomous response matrix.
+
+    Parameters
+    ----------
+    X : array-like or DataFrame
+        Response matrix of shape (N, J) with integer values 0, 1, ..., m_j-1
+        (or 1, 2, ..., m_j if 1-based). Missing values are NaN.
+    n_categories : int, list[int], or None, optional
+        Number of categories per item:
+        - None: infer from data as max(observed) + 1 per item
+        - int: same number for all items
+        - list/array: per-item counts, length J
+
+    Returns
+    -------
+    X_np : np.ndarray
+        Response matrix as float64, shape (N, J). Missing values are NaN.
+    mask_obs : np.ndarray
+        Boolean array indicating observed responses, shape (N, J).
+    item_names : list[str]
+        Names for each item.
+    person_names : list[str]
+        Names for each person.
+    n_categories : np.ndarray
+        Number of categories per item, shape (J,).
+
+    Raises
+    ------
+    ValueError
+        If X contains values outside valid range for each item.
+    """
+    try:
+        import pandas as pd
+        is_dataframe = isinstance(X, pd.DataFrame)
+    except ImportError:
+        is_dataframe = False
+
+    if is_dataframe:
+        item_names = [str(c) for c in X.columns.tolist()]
+        person_names = [str(i) for i in X.index.tolist()]
+        X_np = X.values.astype(np.float64)
+    else:
+        X_np = np.asarray(X, dtype=np.float64)
+        if X_np.ndim != 2:
+            raise ValueError(f"X must be a 2D array, got {X_np.ndim} dimensions.")
+        n_persons, n_items = X_np.shape
+        item_names = [f"item_{j}" for j in range(n_items)]
+        person_names = [f"person_{i}" for i in range(n_persons)]
+
+    if X_np.size == 0:
+        raise ValueError("X is empty. Provide a non-empty response matrix.")
+
+    n_persons, n_items = X_np.shape
+    if n_items < 2:
+        raise ValueError(f"X must have at least 2 items (columns), got {n_items}.")
+    if n_persons < 2:
+        raise ValueError(f"X must have at least 2 persons (rows), got {n_persons}.")
+
+    mask_obs = ~np.isnan(X_np)
+
+    # Infer or validate n_categories
+    if n_categories is None:
+        n_cat_per_item = np.zeros(n_items, dtype=np.int64)
+        for j in range(n_items):
+            obs_vals = X_np[mask_obs[:, j], j]
+            if len(obs_vals) == 0:
+                n_cat_per_item[j] = 2  # default
+            else:
+                max_val = int(np.nanmax(obs_vals))
+                n_cat_per_item[j] = max_val + 1
+    elif isinstance(n_categories, (int, np.integer)):
+        n_cat_per_item = np.full(n_items, int(n_categories), dtype=np.int64)
+    else:
+        n_cat_per_item = np.asarray(n_categories, dtype=np.int64)
+        if n_cat_per_item.shape != (n_items,):
+            raise ValueError(
+                f"n_categories must have length {n_items}, got {len(n_cat_per_item)}."
+            )
+
+    # Validate values: for each item j, observed values must be in [0, n_cat_per_item[j]-1]
+    for j in range(n_items):
+        obs_j = mask_obs[:, j]
+        if not np.any(obs_j):
+            continue
+        vals = X_np[obs_j, j]
+        valid = (vals >= 0) & (vals < n_cat_per_item[j]) & (vals == np.floor(vals))
+        if not np.all(valid):
+            invalid = np.unique(vals[~valid])
+            raise ValueError(
+                f"Item {j} contains invalid values. Expected 0..{n_cat_per_item[j]-1}, "
+                f"found: {invalid[:5]}{'...' if len(invalid) > 5 else ''}"
+            )
+
+    return X_np, mask_obs, item_names, person_names, n_cat_per_item
+
+
+def compute_item_category_proportions(
+    X: np.ndarray,
+    mask_obs: np.ndarray,
+    n_categories: np.ndarray,
+) -> np.ndarray:
+    """
+    Compute proportion of responses in each category for each item.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Response matrix, shape (N, J).
+    mask_obs : np.ndarray
+        Observation mask, shape (N, J).
+    n_categories : np.ndarray
+        Number of categories per item, shape (J,).
+
+    Returns
+    -------
+    np.ndarray
+        Proportions, shape (J, max(n_categories)). Rows sum to 1.
+        Unused categories for items with fewer categories are 0.
+    """
+    J = X.shape[1]
+    max_cat = int(np.max(n_categories))
+    props = np.zeros((J, max_cat), dtype=np.float64)
+
+    for j in range(J):
+        obs = mask_obs[:, j]
+        n_obs = obs.sum()
+        if n_obs == 0:
+            props[j, :] = 1.0 / n_categories[j]  # uniform
+            continue
+        for c in range(n_categories[j]):
+            count = np.sum((X[:, j] == c) & obs)
+            props[j, c] = count / n_obs
+        # Normalize to sum to 1 (in case of rounding)
+        s = props[j, :n_categories[j]].sum()
+        if s > 0:
+            props[j, :n_categories[j]] /= s
+
+    return props
+
+
 def filter_people_min_items(
     X: np.ndarray,
     mask_obs: np.ndarray,

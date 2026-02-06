@@ -7,8 +7,8 @@ estimation methods.
 
 Supported Models
 ----------------
-- Rasch (1PL): One-parameter logistic model
-- 2PL: Two-parameter logistic model
+Binary: Rasch (1PL), 2PL, 3PL
+Polytomous: PCM, RSM, GRM, GPCM, NRM
 
 Supported Estimators
 --------------------
