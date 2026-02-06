@@ -17,6 +17,23 @@ def _simulate_pcm(n_persons, n_items, n_cat, theta, b):
     return X.astype(float)
 
 
+def _simulate_nrm(n_persons, n_items, n_cat):
+    from irt.core_poly import prob_nrm
+    np.random.seed(47)
+    theta = np.random.randn(n_persons) * 0.8
+    a = np.zeros((n_items, n_cat))
+    c = np.zeros((n_items, n_cat))
+    for j in range(n_items):
+        a[j, 1:] = np.linspace(0.3, 1.2, n_cat - 1)
+        c[j, 1:] = np.linspace(-0.5, 0.5, n_cat - 1)
+    X = np.zeros((n_persons, n_items))
+    for i in range(n_persons):
+        for j in range(n_items):
+            p = prob_nrm(np.array([theta[i]]), a[j], c[j], n_cat)[0]
+            X[i, j] = np.random.choice(n_cat, p=p)
+    return X.astype(float)
+
+
 class TestPolytomousFit:
     def test_pcm_converges(self):
         np.random.seed(42)
@@ -46,9 +63,9 @@ class TestPolytomousFit:
         assert result.converged
 
     def test_nrm_fits(self):
-        np.random.seed(46)
-        X = np.random.randint(0, 3, size=(80, 5)).astype(float)
+        X = _simulate_nrm(120, 6, 3)
         result = fit(X, model="nrm")
+        assert result.converged
         assert "a" in result.params and "c" in result.params
 
     def test_eap_map_mle_finite(self):
@@ -63,10 +80,14 @@ class TestPolytomousFit:
         assert np.all(np.isfinite(mle.theta))
 
     def test_fit_accepts_model_names(self):
-        X = np.random.randint(0, 4, size=(30, 4)).astype(float)
-        for model in ["pcm", "rsm", "grm", "gpcm", "nrm"]:
-            result = fit(X, model=model)
+        np.random.seed(48)
+        X_ordered = np.random.randint(0, 4, size=(80, 6)).astype(float)
+        X_nrm = _simulate_nrm(100, 5, 3)
+        for model in ["pcm", "rsm", "grm", "gpcm"]:
+            result = fit(X_ordered, model=model)
             assert result.model == model
+        result = fit(X_nrm, model="nrm")
+        assert result.model == "nrm"
 
     def test_fit_result_params_shape(self):
         X = np.random.randint(0, 4, size=(40, 5)).astype(float)

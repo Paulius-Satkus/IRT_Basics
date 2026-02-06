@@ -289,6 +289,16 @@ The ability scale is identified by centering item difficulties:
 3. Center difficulties for identification
 4. Iterate until convergence
 
+## Development
+
+**Full test suite** (runs all tests and generates `QA_REPORT.md`):
+
+```bash
+make test
+# or
+python scripts/run_tests_with_qa_report.py
+```
+
 ## References
 
 - Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item parameters: Application of an EM algorithm. *Psychometrika*, 46(4), 443-459.

@@ -13,6 +13,16 @@ pip install -e .[dev]
 
 ### Tests
 
+**Full test suite (runs all tests and generates QA_REPORT.md):**
+
+```bash
+make test
+# or
+python scripts/run_tests_with_qa_report.py
+```
+
+**Quick pytest run (no QA report):**
+
 ```bash
 python -m pytest -vv
 ```

@@ -21,7 +21,7 @@ class TestPolytomousPlotting:
 
     def test_plot_icc_polytomous(self):
         np.random.seed(42)
-        X = np.random.randint(0, 4, size=(50, 5)).astype(float)
+        X = np.random.randint(0, 4, size=(80, 6)).astype(float)
         result = fit(X, model="gpcm")
         fig, ax = result.plot_icc(items=[0])
         assert fig is not None
