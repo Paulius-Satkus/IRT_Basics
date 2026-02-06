@@ -1,6 +1,6 @@
 # IRT Python Library - User Manual
 
-A lightweight Python library for Item Response Theory (IRT) analysis, implementing Rasch, 2-Parameter Logistic (2PL), and 3-Parameter Logistic (3PL) models with multiple estimation methods.
+A lightweight Python library for Item Response Theory (IRT) analysis, implementing binary models (Rasch, 2PL, 3PL) and polytomous models (PCM, RSM, GRM, GPCM, NRM) with multiple estimation methods.
 
 ---
 
@@ -92,7 +92,7 @@ print(result.person_report())
 
 ### IRT Models
 
-This library implements three unidimensional IRT models:
+This library implements binary and polytomous unidimensional IRT models.
 
 #### Rasch Model (1PL)
 
@@ -130,6 +130,20 @@ $$P(X = 1 | \theta) = c + (1 - c)\frac{1}{1 + e^{-a(\theta - b)}}$$
 
 Use when items are multiple-choice and guessing is expected.
 
+#### Polytomous Models
+
+For Likert-scale, partial credit, or multi-category items, the library supports:
+
+| Model | Description | Use when |
+|-------|-------------|----------|
+| **PCM** | Partial Credit Model (Masters 1982) | Ordered categories, Rasch-like |
+| **RSM** | Rating Scale Model (Andrich 1978) | Same rating scale across items |
+| **GRM** | Graded Response Model (Samejima 1969) | Cumulative boundaries, discrimination varies |
+| **GPCM** | Generalized Partial Credit Model (Muraki 1992) | PCM with item discrimination |
+| **NRM** | Nominal Response Model (Bock 1972) | Unordered categories |
+
+Polytomous models use integer responses 0, 1, …, m−1 per item. Fit with `fit(X, model="pcm")` etc. See `notebooks/07_polytomous_models.ipynb` for examples.
+
 ### Estimation Methods
 
 #### MML-EM (Marginal Maximum Likelihood via EM)
@@ -137,7 +151,7 @@ Use when items are multiple-choice and guessing is expected.
 - **Best for**: Most situations, especially with missing data
 - **How it works**: Treats person abilities as random effects from a prior distribution (typically N(0,1)), integrates them out
 - **Identification**: Via the prior distribution
-- **Supports**: Rasch, 2PL, and 3PL models
+- **Supports**: Rasch, 2PL, 3PL (binary) and PCM, RSM, GRM, GPCM, NRM (polytomous)
 
 #### JMLE (Joint Maximum Likelihood Estimation)
 
@@ -181,8 +195,8 @@ result = fit(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `X` | array-like or DataFrame | Response matrix (N persons × J items). Values: 0, 1, or NaN |
-| `model` | str | `"rasch"`, `"2pl"`, or `"3pl"` |
+| `X` | array-like or DataFrame | Response matrix (N × J). Binary: 0, 1, NaN. Polytomous: 0..m−1, NaN |
+| `model` | str | Binary: `"rasch"`, `"2pl"`, `"3pl"`. Polytomous: `"pcm"`, `"rsm"`, `"grm"`, `"gpcm"`, `"nrm"` |
 | `estimator` | str | `"mml_em"` or `"jmle"` (Rasch only) |
 | `technical` | dict | Technical parameters (see below) |
 | `start` | dict | Starting values `{"a": array, "b": array, "c": array}` |
@@ -270,7 +284,7 @@ Notes:
 ### `FitResult` - Model Results
 
 ```python
-result.model           # str: "rasch", "2pl", or "3pl"
+result.model           # str: "rasch", "2pl", "3pl", or polytomous ("pcm", etc.)
 result.estimator       # str: "mml_em" or "jmle"
 result.params          # dict: {"a": array, "b": array, "c": array}
 result.converged       # bool: Did estimation converge?
@@ -504,6 +518,31 @@ print(f"Item difficulties: {result.params['b']}")
 print(f"Mean difficulty: {result.params['b'].mean():.4f}")  # Should be ~0 (centered)
 ```
 
+### Example 8: Polytomous Models (PCM, GPCM, GRM)
+
+```python
+from irt import fit
+import numpy as np
+
+# Likert-scale data: 200 persons, 10 items, 5 categories (0-4)
+np.random.seed(42)
+X = np.random.randint(0, 5, size=(200, 10)).astype(float)
+X[np.random.random(X.shape) < 0.05] = np.nan  # Add missing
+
+# Fit Partial Credit Model
+result = fit(X, model="pcm")
+print(f"Converged: {result.converged}")
+print(result.item_report())
+
+# Category Characteristic Curves
+fig, ax = result.plot_icc(items=[0])
+ax.set_title("Item 0: Category Characteristic Curves")
+
+# Other polytomous models: "gpcm", "grm", "rsm", "nrm"
+```
+
+See `notebooks/07_polytomous_models.ipynb` for a full polytomous demo.
+
 ---
 
 ## Technical Details
@@ -591,6 +630,14 @@ ValueError: JMLE estimator only supports Rasch model.
 
 **Solution**: Use `estimator="mml_em"` for 2PL models.
 
+#### Polytomous model with JMLE
+
+```
+ValueError: Polytomous model 'pcm' only supports estimator='mml_em'.
+```
+
+**Solution**: Polytomous models (PCM, RSM, GRM, GPCM, NRM) require MML-EM. Omit `estimator` or use `estimator="mml_em"`.
+
 ### Validation Against R mirt
 
 To verify your results, compare with R's mirt package:
@@ -612,6 +659,7 @@ Expected agreement:
 ## Version History
 
 - **0.1.0**: Initial release with Rasch and 2PL MML-EM, JMLE for Rasch
+- **0.2.0** (planned): Polytomous models (PCM, RSM, GRM, GPCM, NRM) with MML-EM
 
 ---
 
@@ -626,3 +674,5 @@ MIT License
 - Bock, R. D., & Aitkin, M. (1981). Marginal maximum likelihood estimation of item parameters: Application of an EM algorithm. *Psychometrika*, 46(4), 443-459.
 - Lord, F. M. (1980). *Applications of Item Response Theory to Practical Testing Problems*. Erlbaum.
 - Rasch, G. (1960). *Probabilistic Models for Some Intelligence and Attainment Tests*. Danish Institute for Educational Research.
+- Masters, G. N. (1982). A Rasch model for partial credit scoring. *Psychometrika*, 47(2), 149-174.
+- Samejima, F. (1969). Estimation of latent ability using a response pattern of graded scores. *Psychometrika Monograph Supplement*, 17, 1-100.

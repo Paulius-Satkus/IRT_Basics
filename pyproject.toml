@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "irt"
 version = "0.1.0"
-description = "Item Response Theory library with MML-EM and JMLE estimation"
+description = "Item Response Theory library: binary (Rasch, 2PL, 3PL) and polytomous (PCM, RSM, GRM, GPCM, NRM) models with MML-EM and JMLE estimation"
 readme = "README.md"
 license = {text = "UNLICENSED"}
 requires-python = ">=3.9"
